@@ -496,11 +496,17 @@
 
     if (video) {
       function formatTime(seconds) {
+        if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
       }
       function updateProgress() {
+        if (!video.duration || isNaN(video.duration) || !isFinite(video.duration)) {
+          progressBar.style.width = '0%';
+          timeDisplay.innerText = '0:00 / 0:00';
+          return;
+        }
         const percent = (video.currentTime / video.duration) * 100;
         progressBar.style.width = `${percent}%`;
         timeDisplay.innerText = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
@@ -522,6 +528,7 @@
         poster.classList.remove('hidden'); playOverlay.classList.remove('hidden');
       });
       progressContainer?.addEventListener('click', (e) => {
+        if (!video.duration || isNaN(video.duration) || !isFinite(video.duration)) return;
         const rect = progressContainer.getBoundingClientRect();
         const percent = (e.clientX - rect.left) / rect.width;
         video.currentTime = percent * video.duration;
@@ -720,6 +727,7 @@
 
     function roomStorageKey(room) { return ROOM_STORAGE_PREFIX + room; }
 
+    // ===== FIXED: save avatars too =====
     function saveMessagesToStorage(room) {
       if (isHydrating) return;
       try {
@@ -750,15 +758,26 @@
           else if (isSystem) senderName = 'System';
           else senderName = bubble.querySelector('.chat-sender-name')?.innerText || 'Unknown';
 
+          // Save avatar URL
+          const avatarBubble = row.querySelector('.chat-avatar-bubble');
+          let senderAvatar = null;
+          if (avatarBubble) {
+            const bg = avatarBubble.style.backgroundImage;
+            if (bg && bg.startsWith('url("') && bg.endsWith('")')) {
+              senderAvatar = bg.slice(5, -2);
+            }
+          }
+
           messages.push({
             side: isOutgoing ? 'outgoing' : 'incoming',
-            senderName, text, time, imageUrl: image, videoUrl: video, audioUrl: audio, tickStatus, isSystem
+            senderName, senderAvatar, text, time, imageUrl: image, videoUrl: video, audioUrl: audio, tickStatus, isSystem
           });
         });
         localStorage.setItem(roomStorageKey(room), JSON.stringify(messages));
       } catch(e) { console.warn('Save failed:', e); }
     }
 
+    // ===== FIXED: load avatars too =====
     function loadMessagesFromStorage(room) {
       const key = roomStorageKey(room);
       const stored = localStorage.getItem(key);
@@ -783,6 +802,7 @@
           } else {
             buildIncomingMessage({
               senderName: msg.senderName,
+              senderAvatar: msg.senderAvatar,
               text: msg.text,
               time: msg.time,
               mediaUrl: msg.imageUrl || msg.videoUrl || msg.audioUrl,
@@ -852,7 +872,7 @@
       row.dataset.messageType = msgData.messageType;
       const avatarHtml = msgData.senderAvatar
         ? `<div class="chat-avatar-bubble" style="background-image: url('${msgData.senderAvatar}'); background-size: cover; background-position: center;"></div>`
-        : `<div class="chat-avatar-bubble">${msgData.senderName.charAt(0)}</div>`;
+        : `<div class="chat-avatar-bubble">${(msgData.senderName || '?').charAt(0)}</div>`;
       let contentHtml = '';
       const senderName = msgData.senderName || 'AI';
       const nameColor = getNameColor(senderName);
@@ -947,7 +967,6 @@
   })();
 
   // ========== AVATAR PRELOADER ==========
-  // Once the engine is loaded, preload all persona avatars to speed up chat.
   (function preloadAvatars() {
     const checkInterval = setInterval(() => {
       if (window.AIPersonaSimulator && typeof window.AIPersonaSimulator.getPersonas === 'function') {
@@ -956,7 +975,7 @@
         personas.forEach(p => {
           if (p.avatar && !p.avatar.includes('ui-avatars.com')) {
             const img = new Image();
-            img.src = p.avatar;   // start downloading immediately
+            img.src = p.avatar;
           }
         });
         console.log('✅ Preloaded persona avatars');
